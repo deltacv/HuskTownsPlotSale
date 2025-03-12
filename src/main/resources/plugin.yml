@@ -1,0 +1,5 @@
+name: HuskTownsPlotSale
+version: '1.0.0'
+main: io.github.deltacv.hkplotsale.HuskTownsPlotSale
+api-version: '1.21'
+depend: [HuskTowns, Vault]
