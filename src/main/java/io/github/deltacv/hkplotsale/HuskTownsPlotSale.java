@@ -9,6 +9,7 @@ import net.william278.husktowns.claim.Chunk;
 import net.william278.husktowns.claim.Claim;
 import net.william278.husktowns.claim.Position;
 import net.william278.husktowns.claim.TownClaim;
+import net.william278.husktowns.libraries.cloplib.operation.OperationType;
 import net.william278.husktowns.town.Member;
 import net.william278.husktowns.town.Privilege;
 import net.william278.husktowns.town.Role;
@@ -83,11 +84,11 @@ public final class HuskTownsPlotSale extends JavaPlugin implements Listener {
 
                 if (members.size() == 1) {
                     String ownerName = Bukkit.getPlayer(members.iterator().next()).getName();
-                    event.getPlayer().spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText(ChatColor.GREEN + ownerName + "'s plot"));
+                    event.getPlayer().spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText(ChatColor.GREEN + ownerName + "'s Plot"));
                 } else if (members.size() == 0) {
-                    event.getPlayer().spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText(ChatColor.GRAY + "Unowned plot"));
+                    event.getPlayer().spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText(ChatColor.GRAY + "Unowned Plot"));
                 } else {
-                    event.getPlayer().spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText(ChatColor.GRAY + "Shared plot"));
+                    event.getPlayer().spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText(ChatColor.GRAY + "Shared Plot"));
                 }
             }
         } else {
@@ -135,6 +136,16 @@ public final class HuskTownsPlotSale extends JavaPlugin implements Listener {
                 OnlineUser user = getHuskTownsAPI().getOnlineUser(player.getUniqueId());
 
                 if (user != null) {
+                    if(claim.claim().isPlotManager(user.getUuid()) || claim.claim().isPlotMember(user.getUuid())) {
+                        event.getPlayer().sendMessage(ChatColor.RED + "You cannot buy a plot you already own!");
+                        return;
+                    }
+
+                    if(getHuskTownsAPI().isOperationAllowed(user, OperationType.BLOCK_BREAK, position)) {
+                        event.getPlayer().sendMessage(ChatColor.RED + "You cannot buy a plot in a town you have high privileges for!");
+                        return;
+                    }
+
                     if(claim.town().getMembers().size() >= claim.town().getMaxMembers(huskTowns)) {
                         event.getPlayer().sendMessage(ChatColor.RED + "The town is full! You cannot buy a plot here. Notify the town owner to increase the town size limit.");
                         return;
@@ -144,10 +155,13 @@ public final class HuskTownsPlotSale extends JavaPlugin implements Listener {
                         economy.withdrawPlayer(player, value);
                         // add the funds to the town
                         claim.town().setMoney(claim.town().getMoney().add(BigDecimal.valueOf(value)));
-                        if(!claim.claim().getPlotMembers().contains(user.getUuid())) {
+                        if(!claim.town().getMembers().containsKey(user.getUuid())) {
                             claim.town().addMember(user.getUuid(), huskTowns.getRoles().getDefaultRole());
-
                             player.sendMessage(ChatColor.GREEN + "You are now a member of " + ChatColor.BOLD + "" + ChatColor.BOLD +claim.town().getName());
+                        }
+
+                        for(UUID uuid : claim.claim().getPlotMembers()) {
+                            claim.claim().removePlotMember(uuid); // bye bye old owner
                         }
 
                         claim.claim().setPlotMember(user.getUuid(), false);
@@ -169,6 +183,8 @@ public final class HuskTownsPlotSale extends JavaPlugin implements Listener {
                             fm.setPower(0);
                             firework.setFireworkMeta(fm);
                         });
+
+                        getHuskTownsAPI().updateTown(user, claim.town());
                     } else {
                         event.getPlayer().sendMessage(ChatColor.RED + "You do not have enough money to buy this plot!");
                     }
@@ -191,7 +207,9 @@ public final class HuskTownsPlotSale extends JavaPlugin implements Listener {
             return;
         }
 
-        if (line1.equalsIgnoreCase("[sale]")) {
+        if (line1.equalsIgnoreCase("[plot sale]")) {
+            event.setCancelled(true);
+
             // check if the player has permission to create a plot sale sign
             if (!event.getPlayer().hasPermission("husktowns.plotsale.create")) {
                 event.getPlayer().sendMessage("You do not have permission to create a plot sale sign!");
@@ -242,6 +260,7 @@ public final class HuskTownsPlotSale extends JavaPlugin implements Listener {
                     event.setLine(3, ChatColor.GREEN + "" + ChatColor.BOLD + "Click to buy!");
 
                     event.getPlayer().sendMessage(ChatColor.YELLOW + "Sign created! The funds from the sale will be added to the town's bank account.");
+                    event.getPlayer().sendMessage(ChatColor.YELLOW + "Note: If this plot has any members, they will be removed when the plot is sold.");
                 } else {
                     event.getPlayer().sendMessage(ChatColor.RED + "You do not have permission to sell this plot!");
                     event.setLine(1, "No permission!");
