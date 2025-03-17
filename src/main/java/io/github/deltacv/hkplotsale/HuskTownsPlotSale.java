@@ -84,14 +84,10 @@ public final class HuskTownsPlotSale extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onPlayerCommand(PlayerCommandPreprocessEvent event) {
-        if(event.getMessage().startsWith("/t plot")) {
+        if(event.getMessage().startsWith("/t plot") || event.getMessage().startsWith("/husktowns:t plot") || event.getMessage().startsWith("/town plot") || event.getMessage().startsWith("/husktowns:town plot")) {
             OnlineUser user = getHuskTownsAPI().getOnlineUser(event.getPlayer().getUniqueId());
 
-            if(!getHuskTownsAPI().isPrivilegeAllowed(Privilege.CLAIM_PLOT, user) || !event.getMessage().equals("/t plot")) {
-                //redirect to /plot
-                event.getPlayer().performCommand("plot" + event.getMessage().replaceFirst("/t plot", ""));
-                event.setCancelled(true);
-            } else {
+            if(getHuskTownsAPI().isPrivilegeAllowed(Privilege.CLAIM, user) && (event.getMessage().trim().equals("/t plot") || event.getMessage().trim().equals("/town plot") || event.getMessage().trim().equals("/husktowns:t plot") || event.getMessage().trim().equals("/husktowns:town plot"))) {
                 Location loc = event.getPlayer().getLocation();
                 Position position = Position.at(loc.getX(), loc.getY(), loc.getZ(), getHuskTownsAPI().getWorld(loc.getWorld().getName()));
 
@@ -117,6 +113,18 @@ public final class HuskTownsPlotSale extends JavaPlugin implements Listener {
                         event.getPlayer().sendMessage(ChatColor.DARK_RED + "Bypassing permission check.");
                     }
                 }
+            } else {
+                //redirect to /plot
+                if(event.getMessage().startsWith("/husktowns:t plot")) {
+                    event.getPlayer().performCommand("plot" + event.getMessage().replaceFirst("/husktowns:t plot", ""));
+                } else if(event.getMessage().startsWith("/husktowns:town plot")) {
+                    event.getPlayer().performCommand("plot" + event.getMessage().replaceFirst("/husktowns:town plot", ""));
+                } else if(event.getMessage().startsWith("/town plot")) {
+                    event.getPlayer().performCommand("plot" + event.getMessage().replaceFirst("/town plot", ""));
+                } else if(event.getMessage().startsWith("/t plot")) {
+                    event.getPlayer().performCommand("plot" + event.getMessage().replaceFirst("/t plot", ""));
+                }
+                event.setCancelled(true);
             }
         }
     }
