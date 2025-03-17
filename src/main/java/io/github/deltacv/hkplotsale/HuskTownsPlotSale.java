@@ -12,7 +12,6 @@ import net.william278.husktowns.claim.Chunk;
 import net.william278.husktowns.claim.Claim;
 import net.william278.husktowns.claim.Position;
 import net.william278.husktowns.claim.TownClaim;
-import net.william278.husktowns.events.UnClaimAllEvent;
 import net.william278.husktowns.events.UnClaimEvent;
 import net.william278.husktowns.libraries.cloplib.operation.OperationType;
 import net.william278.husktowns.town.Member;
@@ -32,8 +31,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.*;
-import org.bukkit.event.player.PlayerInteractEvent;
-import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.*;
 import org.bukkit.inventory.meta.FireworkMeta;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -77,6 +75,7 @@ public final class HuskTownsPlotSale extends JavaPlugin implements Listener {
         economy = getServer().getServicesManager().getRegistration(Economy.class).getProvider();
 
         getServer().getPluginManager().registerEvents(this, this);
+        getCommand("plot").setExecutor(new PlotCommand(this));
     }
 
     @Override
@@ -84,7 +83,50 @@ public final class HuskTownsPlotSale extends JavaPlugin implements Listener {
     }
 
     @EventHandler
+    public void onPlayerCommand(PlayerCommandPreprocessEvent event) {
+        if(event.getMessage().startsWith("/t plot")) {
+            OnlineUser user = getHuskTownsAPI().getOnlineUser(event.getPlayer().getUniqueId());
+
+            if(!getHuskTownsAPI().isPrivilegeAllowed(Privilege.CLAIM_PLOT, user) || !event.getMessage().equals("/t plot")) {
+                //redirect to /plot
+                event.getPlayer().performCommand("plot" + event.getMessage().replaceFirst("/t plot", ""));
+                event.setCancelled(true);
+            } else {
+                Location loc = event.getPlayer().getLocation();
+                Position position = Position.at(loc.getX(), loc.getY(), loc.getZ(), getHuskTownsAPI().getWorld(loc.getWorld().getName()));
+
+                TownClaim claim = getHuskTownsAPI().getClaimAt(position).orElse(null);
+
+                if(claim != null && claim.claim().getType() == Claim.Type.PLOT) {
+                    Set<UUID> managers = claim.claim().getPlotMembers().stream().filter(uuid -> claim.claim().isPlotManager(uuid)).collect(Collectors.toSet());
+
+                    // get plot manager
+                    if(!event.getPlayer().hasPermission("husktowns.plotsale.bypass")) {
+                        if(getHuskTownsAPI().isPrivilegeAllowed(Privilege.INVITE, user)) {
+                            if(!managers.isEmpty()) {
+                                event.getPlayer().sendMessage(ChatColor.RED + "You are not allowed to modify this plot.");
+                                event.setCancelled(true);
+                            }
+                        } else {
+                            if (!claim.claim().isPlotManager(event.getPlayer().getUniqueId())) {
+                                event.getPlayer().sendMessage(ChatColor.RED + "You are not allowed to modify this plot.");
+                                event.setCancelled(true);
+                            }
+                        }
+                    } else {
+                        event.getPlayer().sendMessage(ChatColor.DARK_RED + "Bypassing permission check.");
+                    }
+                }
+            }
+        }
+    }
+
+    @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
+        if(!event.hasChangedBlock()) {
+            return;
+        }
+
         // check if player moved into a plot
         Location loc = event.getPlayer().getLocation();
         Position position = Position.at(loc.getX(), loc.getY(), loc.getZ(), getHuskTownsAPI().getWorld(loc.getWorld().getName()));
@@ -114,6 +156,20 @@ public final class HuskTownsPlotSale extends JavaPlugin implements Listener {
                         data.forSale = false;
                         savePlotData(claim.claim().getChunk(), data);
                         getLogger().warning("Plot sale sign for chunk " + claim.claim().getChunk().asLong() + " was missing. Disabling sale.");
+                    }
+                }
+
+                if(data != null && data.firstOwner != null) {
+                    // check if the player is still the manager
+                    Set<UUID> users = claim.claim().getPlotMembers();
+                    Set<UUID> managers = users.stream().filter(uuid -> claim.claim().isPlotManager(uuid)).collect(Collectors.toSet());
+
+                    if(!managers.contains(data.firstOwner)) {
+                        data.firstOwner = null; // oops, bye bye
+                        data.forSale = false;
+
+                        getLogger().warning("Plot manager for chunk " + claim.claim().getChunk().asLong() + " was missing. Pruning data.}");
+                        savePlotData(claim.claim().getChunk(), data);
                     }
                 }
 
@@ -244,7 +300,7 @@ public final class HuskTownsPlotSale extends JavaPlugin implements Listener {
                             claim.claim().removePlotMember(uuid); // bye bye old owner
                         }
 
-                        claim.claim().setPlotMember(user.getUuid(), false);
+                        claim.claim().setPlotMember(user.getUuid(), true);
                         Bukkit.getServer().broadcastMessage(ChatColor.YELLOW + player.getName() + " has bought a plot in " + claim.town().getName());
 
                         // remove the sign
@@ -369,8 +425,10 @@ public final class HuskTownsPlotSale extends JavaPlugin implements Listener {
                     } else {
                         PlotData data = loadPlotData(claim.claim().getChunk());
 
-                        if (data != null && !data.firstOwner.equals(event.getPlayer().getUniqueId()) && !event.getPlayer().hasPermission("husktowns.plotsale.bypass")) {
-                            event.getPlayer().sendMessage(ChatColor.RED + "You cannot sell this plot! You are not the original owner.");
+                        if (data != null && !data.firstOwner.equals(event.getPlayer().getUniqueId()) &&
+                                !claim.claim().isPlotManager(event.getPlayer().getUniqueId()) &&
+                                !event.getPlayer().hasPermission("husktowns.plotsale.bypass")) {
+                            event.getPlayer().sendMessage(ChatColor.RED + "You cannot sell this plot! You are not a maanger.");
                             event.setLine(1, "Not original owner!");
                             return;
                         }
@@ -406,11 +464,21 @@ public final class HuskTownsPlotSale extends JavaPlugin implements Listener {
 
     @EventHandler(priority = EventPriority.LOW)
     public void onUnclaim(UnClaimEvent evt) {
+        Claim claim = evt.getClaim();
+
         if(evt.getPlayer().hasPermission("husktowns.plotsale.bypass")) {
+            if(claim.getType() == Claim.Type.PLOT) {
+                PlotData data = getCachedPlotData(claim.getChunk());
+                if(data != null) {
+                    data.firstOwner = null;
+                    data.forSale = false;
+                    savePlotData(claim.getChunk(), data);
+                    getLogger().info("Unclaiming plot and pruning data " + claim.getChunk().asLong() + " by " + evt.getPlayer().getName());
+                }
+            }
+
             return;
         }
-
-        Claim claim = evt.getClaim();
 
         if (claim.getType() == Claim.Type.PLOT) {
             if(!claim.getPlotMembers().isEmpty() && !claim.getPlotMembers().contains(evt.getPlayer().getUniqueId())) {
@@ -447,7 +515,11 @@ public final class HuskTownsPlotSale extends JavaPlugin implements Listener {
             Position position = Position.at(block.getX(), block.getY(), block.getZ(), getHuskTownsAPI().getWorld(block.getWorld().getName()));
             TownClaim claim = getHuskTownsAPI().getClaimAt(position).orElse(null);
 
-            if (claim != null && claim.claim().getType() == Claim.Type.PLOT && !claim.claim().getPlotMembers().isEmpty() && !claim.claim().getPlotMembers().contains(evt.getPlayer().getUniqueId())) {
+            PlotData data = getCachedPlotData(claim.claim().getChunk());
+
+            if (claim != null && claim.claim().getType() == Claim.Type.PLOT
+                    && (!claim.claim().isPlotManager(evt.getPlayer().getUniqueId()) || (data != null && data.firstOwner != null && !data.firstOwner.equals(evt.getPlayer().getUniqueId())))
+            ) {
                 evt.getPlayer().sendMessage(ChatColor.RED + "You cannot destroy blocks in a plot you do not own!");
                 evt.setCancelled(true);
             }

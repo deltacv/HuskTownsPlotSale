@@ -3,3 +3,27 @@ version: '1.0.0'
 main: io.github.deltacv.hkplotsale.HuskTownsPlotSale
 api-version: '1.21'
 depend: [HuskTowns, Vault]
+
+commands:
+    plot:
+        description: Plot command
+        usage: /<command> <subcommand> [args]
+        aliases: [plt]
+        subcommands:
+        add:
+            description: Add a user to the plot
+            usage: /<command> add <player>
+            permission-message: You do not have permission to use this command
+        remove:
+            description: Removes a user from the plot
+            usage: /<command> remove <player>
+            permission-message: You do not have permission to use this command
+        buy:
+            description: Buy a plot
+            usage: /<command> buy
+            permission-message: You do not have permission to use this command
+        sell:
+            description: Information on how to sell a plot
+            usage: /<command> sell
+            permission: husktowns.plotsale
+            permission-message: You do not have permission to use this command
